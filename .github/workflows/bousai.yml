@@ -1,0 +1,57 @@
+name: 防災アラート（警報の高頻度監視）
+
+# 気象警報・注意報だけを短い間隔で監視する。
+# 気象APIは叩かず気象庁の防災情報JSONだけを見るので、1回あたり数秒で終わる。
+#
+# 【なぜ別ワークフローに分けたか】
+#   災害の通知は速いほどよいが、天気・雨・急変まで毎回取りに行くと重い。
+#   警報だけなら軽いので、こちらを高頻度、通常の天気は tenki.yml で30分ごとにする。
+#
+# 【実行時間について】
+#   Publicリポジトリでは GitHub Actions の実行時間が無制限で無料。
+#   Privateのままだと無料枠は月2,000分で、課金はジョブ単位1分未満切り上げのため
+#   5分ごと(288回/日)では約8,755分/月となり大幅に超過する。
+#   Privateで運用する場合は、このワークフローを無効化するか cron を "*/30" にすること。
+
+on:
+  schedule:
+    - cron: "*/5 * * * *"     # 5分ごと
+  workflow_dispatch:
+
+concurrency:
+  group: tenki-line          # tenki.yml と同じグループにして state.json の衝突を防ぐ
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  warning:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 警報・注意報をチェック
+        env:
+          LOCATIONS: ${{ secrets.LOCATIONS }}
+          SMTP_USER: ${{ secrets.SMTP_USER }}
+          SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
+          MAIL_TO: ${{ secrets.MAIL_TO }}
+          LINE_CHANNEL_ACCESS_TOKEN: ${{ secrets.LINE_CHANNEL_ACCESS_TOKEN }}
+          LINE_USER_ID: ${{ secrets.LINE_USER_ID }}
+          TZ: Asia/Tokyo
+        run: python3 tenki_line.py warning
+
+      - name: 通知済みの記録を保存
+        if: always()
+        run: |
+          if [ -n "$(git status --porcelain state.json)" ]; then
+            git config user.name  "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add state.json
+            git commit -m "chore: 警報の状態を更新 [skip ci]"
+            git pull --rebase --autostash
+            git push
+          else
+            echo "変更なし"
+          fi

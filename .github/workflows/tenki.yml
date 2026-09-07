@@ -1,0 +1,67 @@
+name: 天気LINE通知
+
+on:
+  schedule:
+    # 30分ごとに実行し、何を送るかはスクリプト側(auto)が判断する。
+    # 警報・注意報と予報の急変を早く拾うため、1時間→30分に短縮した(2026-09-07)。
+    #
+    # 【なぜ30分が上限か】
+    #   GitHub Actions のプライベートリポジトリ無料枠は月2,000分。
+    #   課金はジョブ単位で1分未満切り上げなので、実行が10秒でも1分として計上される。
+    #     30分ごと =  48回/日 → 約1,459分/月  ← 無料枠に収まる
+    #     20分ごと =  72回/日 → 約2,189分/月  ← 超過
+    #   これより速くしたい場合はリポジトリをPublicにする(Publicは実行時間が無制限)。
+    #   ただしPublicにすると config.json の緯度経度が誰でも見えるので注意。
+    #
+    # ※cronは混雑時に数分〜十数分遅れる。朝サマリーは
+    #   「設定時刻を過ぎていて未送信なら送る」方式なので、遅れても1日1通届く。
+    - cron: "*/30 * * * *"
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "実行モード"
+        required: true
+        default: test
+        type: choice
+        options: [test, morning, rain, warning, auto]
+
+concurrency:
+  group: tenki-line
+  cancel-in-progress: false
+
+permissions:
+  contents: write   # state.json（通知済みの記録）をコミットするため
+
+jobs:
+  notify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 通知を実行
+        env:
+          # 地点（Publicリポジトリでも自宅の座標が公開されないようSecretsに逃がす）
+          LOCATIONS: ${{ secrets.LOCATIONS }}
+          # メール（いまはこちら）
+          SMTP_USER: ${{ secrets.SMTP_USER }}
+          SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
+          MAIL_TO: ${{ secrets.MAIL_TO }}
+          # LINE（Secretsを登録した時点で自動的に有効になる。未登録なら空でスキップされる）
+          LINE_CHANNEL_ACCESS_TOKEN: ${{ secrets.LINE_CHANNEL_ACCESS_TOKEN }}
+          LINE_USER_ID: ${{ secrets.LINE_USER_ID }}
+          TZ: Asia/Tokyo
+        run: python3 tenki_line.py "${{ inputs.mode || 'auto' }}"
+
+      - name: 通知済みの記録を保存
+        if: always()
+        run: |
+          if [ -n "$(git status --porcelain state.json)" ]; then
+            git config user.name  "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add state.json
+            git commit -m "chore: 通知状態を更新 [skip ci]"
+            git pull --rebase --autostash
+            git push
+          else
+            echo "変更なし"
+          fi
