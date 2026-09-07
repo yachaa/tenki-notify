@@ -129,6 +129,28 @@ def pm25_note(v):
     return None
 
 
+INTENSITY_ORDER = ["1", "2", "3", "4", "5-", "5+", "6-", "6+", "7"]
+
+
+def intensity_rank(v):
+    """震度文字列を順位に。不明なら -1。"""
+    try:
+        return INTENSITY_ORDER.index(str(v))
+    except ValueError:
+        return -1
+
+
+def intensity_advice(v):
+    r = intensity_rank(v)
+    if r >= 6:      # 6- 以上
+        return "🚨 立っていられない揺れです。身の安全を最優先に。余震に警戒してください"
+    if r >= 4:      # 5- 以上
+        return "⚠️ 家具の転倒に注意。落下物とガラスに気をつけてください"
+    if r >= 3:      # 4
+        return "地震です。落下物に注意してください"
+    return None
+
+
 def discomfort_index(temp, hum):
     """不快指数 = 0.81T + 0.01H(0.99T - 14.3) + 46.3
     出典: 一般的に用いられる Thom の不快指数(日本での慣用式)。"""
@@ -515,6 +537,38 @@ def fetch_wbgt(point):
         return None
 
 
+def fetch_overview(office):
+    """気象台が書いた天気概況の本文。台風の見通しなど、数値予報には出ない解説が入る。
+    出典: https://www.jma.go.jp/bosai/forecast/data/overview_forecast/{府県コード}.json"""
+    if not office:
+        return None
+    try:
+        return http_json(
+            "https://www.jma.go.jp/bosai/forecast/data/overview_forecast/%s.json" % office,
+            timeout=10)
+    except Exception:
+        return None
+
+
+def fetch_quakes():
+    """気象庁の地震情報リスト（直近の震源・震度情報）。
+    出典: https://www.jma.go.jp/bosai/quake/data/list.json"""
+    try:
+        return http_json("https://www.jma.go.jp/bosai/quake/data/list.json", timeout=10)
+    except Exception:
+        return None
+
+
+def fetch_jma_info():
+    """気象庁の各種気象情報（記録的短時間大雨情報・熱中症警戒アラート・竜巻注意情報など）。
+    出典: https://www.jma.go.jp/bosai/information/data/information.json"""
+    try:
+        return http_json("https://www.jma.go.jp/bosai/information/data/information.json",
+                         timeout=10)
+    except Exception:
+        return None
+
+
 def fetch_air_quality(lat, lon):
     """PM2.5。取れなくても通知は続行する(戻り値 None)。"""
     params = {"latitude": lat, "longitude": lon, "timezone": "Asia/Tokyo",
@@ -587,7 +641,7 @@ def hourly_table(hourly, now, from_hour=6):
     return rows
 
 
-def build_morning(loc, fc, cfg, aq=None, wbgt=None):
+def build_morning(loc, fc, cfg, aq=None, wbgt=None, overview=None):
     now = now_jst()
     daily, hourly = fc["daily"], fc["hourly"]
     i = today_index(daily, now)
@@ -673,6 +727,16 @@ def build_morning(loc, fc, cfg, aq=None, wbgt=None):
                  % (tag, WEEKDAY_JA[dt.weekday()], ic,
                     hi if hi is not None else 0, lo if lo is not None else 0,
                     ("%d%%" % pp) if pp is not None else "--"))
+
+    # ── 気象台の解説 ──────────────────────────
+    # 数値予報には出てこない台風の見通しなどが書かれているので、そのまま載せる。
+    if overview and (overview.get("text") or "").strip():
+        body = " ".join(overview["text"].split())
+        if len(body) > 300:
+            body = body[:300] + "…"
+        L.append("")
+        L.append("━━ %s より ━━" % overview.get("publishingOffice", "気象台"))
+        L.append(body)
 
     # ── 今日のアドバイス ──────────────────────
     hum_avg = avg_humidity_today(hourly, now)
@@ -845,6 +909,124 @@ def build_rain_alert(loc, fc, cfg, state, idx=0):
     else:
         lines.append("🌂 出かけるなら傘を")
     return "\n".join(lines)
+
+
+# ----------------------------------------------------------------------------
+# 地震（自分の市区町村で一定の震度を観測したら知らせる）
+# ----------------------------------------------------------------------------
+def build_quake_alert(loc, cfg, state, idx=0):
+    city = loc.get("jma_city")
+    if not city:
+        return None
+    qa = cfg.get("quake_alert", {})
+    if not qa.get("enabled", True):
+        return None
+    min_rank = intensity_rank(qa.get("min_intensity", "3"))
+    if min_rank < 0:
+        min_rank = 2
+
+    data = fetch_quakes()
+    if not data:
+        return None
+
+    key = "quake:%d" % idx
+    seen = state.get(key) or []
+    first_run = key not in state
+
+    hits = []
+    for q in data[:40]:                      # 直近40件だけ見る
+        eid = q.get("eid")
+        if not eid or eid in seen:
+            continue
+        mine = None
+        for pref in (q.get("int") or []):
+            for c in (pref.get("city") or []):
+                if str(c.get("code")) == str(city):
+                    mine = c.get("maxi")
+        if mine is None or intensity_rank(mine) < min_rank:
+            continue
+        hits.append((q, mine))
+
+    # 見た地震は震度に関わらず記録して、次回以降の再判定を避ける
+    state[key] = ([q.get("eid") for q in data[:40] if q.get("eid")])[:60]
+    if first_run or not hits:
+        return None
+
+    q, mine = hits[0]                        # 最新の1件を通知する
+    at = q.get("at", "")
+    try:
+        t = datetime.strptime(at[:16], "%Y-%m-%dT%H:%M").strftime("%m/%d %H:%M")
+    except (ValueError, TypeError):
+        t = at
+
+    L = ["🌏 地震がありました", "📍%s" % loc["name"], ""]
+    L.append("このあたりの震度: %s" % mine)
+    L.append("")
+    L.append("発生: %s頃" % t)
+    L.append("震源: %s" % q.get("anm", "不明"))
+    if q.get("mag") not in (None, "", "/"):
+        L.append("規模: M%s" % q.get("mag"))
+    if q.get("maxi"):
+        L.append("最大震度: %s（震源周辺）" % q.get("maxi"))
+    adv = intensity_advice(mine)
+    if adv:
+        L.append("")
+        L.append(adv)
+    L.append("")
+    L.append("━━ 公式情報 ━━")
+    L.append("https://www.jma.go.jp/bosai/map.html#contents=earthquake_map")
+    return "\n".join(L)
+
+
+# ----------------------------------------------------------------------------
+# 府県気象情報（記録的短時間大雨情報・熱中症警戒アラート・竜巻注意情報など）
+# ----------------------------------------------------------------------------
+def build_info_alert(loc, state, idx=0):
+    office = loc.get("jma_office")
+    if not office:
+        return None
+    data = fetch_jma_info()
+    if not data:
+        return None
+
+    key = "jmainfo:%d" % idx
+    seen = state.get(key) or []
+    first_run = key not in state
+
+    mine = []
+    for x in data:
+        codes = set(x.get("areaCodes") or [])
+        if x.get("areaCode"):
+            codes.add(x["areaCode"])
+        if office not in codes:
+            continue
+        eid = x.get("eventId") or x.get("jsonName")
+        if not eid:
+            continue
+        mine.append((eid, x))
+
+    state[key] = [e for e, _ in mine][:60]
+    if first_run:
+        return None
+
+    fresh = [x for e, x in mine if e not in seen]
+    if not fresh:
+        return None
+
+    x = fresh[0]
+    title = x.get("headTitle") or x.get("controlTitle") or "気象情報"
+    L = ["📢 %s" % title, "📍%s" % loc["name"], ""]
+    rdt = x.get("reportDatetime", "")
+    try:
+        L.append("発表: %s %s" % (datetime.strptime(rdt[:16], "%Y-%m-%dT%H:%M")
+                                 .strftime("%m/%d %H:%M"),
+                                 x.get("publishingOffice", "気象庁")))
+    except (ValueError, TypeError):
+        pass
+    L.append("")
+    L.append("━━ 詳しくは ━━")
+    L.append("https://www.jma.go.jp/bosai/map.html")
+    return "\n".join(L)
 
 
 # ----------------------------------------------------------------------------
@@ -1168,7 +1350,8 @@ def run(mode, dry_run=False):
         if do_morning and fc:
             aq = fetch_air_quality(loc["latitude"], loc["longitude"])
             wb = fetch_wbgt(loc.get("wbgt_point"))
-            if notify(build_morning(loc, fc, cfg, aq, wb), dry_run):
+            ov = fetch_overview(loc.get("jma_office"))
+            if notify(build_morning(loc, fc, cfg, aq, wb, ov), dry_run):
                 sent += 1
                 if auto_morning:
                     state[morning_key] = now.strftime("%Y-%m-%d")
@@ -1190,6 +1373,17 @@ def run(mode, dry_run=False):
                 print("[preview] %s: 雨アラートなし（降り出しは予報範囲外 or 既に降雨中）" % loc["name"])
 
         if do_warning:
+            # 災害系（地震・府県気象情報）は警報と同じ高頻度チェックで拾う
+            for builder in (lambda: build_quake_alert(loc, cfg, state, idx),
+                            lambda: build_info_alert(loc, state, idx)):
+                try:
+                    m = builder()
+                    changed = True
+                    if m and notify(m, dry_run):
+                        sent += 1
+                except Exception as e:
+                    sys.stderr.write("災害情報の取得失敗 (%s): %s\n" % (loc["name"], e))
+
             try:
                 msg = build_warning_alert(
                     loc, state, cfg.get("warning_alert", {}).get("min_level", "advisory"), fc, idx)

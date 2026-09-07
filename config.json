@@ -40,5 +40,10 @@
       6
     ]
   },
-  "_locations_note": "実際の地点は GitHub Secrets の LOCATIONS に入れる（この配列と同じ形のJSON）。Secretsが設定されていればそちらが優先される。ここの値はSecrets未設定時のフォールバック。"
+  "_locations_note": "実際の地点は GitHub Secrets の LOCATIONS に入れる（この配列と同じ形のJSON）。Secretsが設定されていればそちらが優先される。ここの値はSecrets未設定時のフォールバック。",
+  "quake_alert": {
+    "_comment": "自分の市区町村でこの震度以上を観測したら通知する（1,2,3,4,5-,5+,6-,6+,7）",
+    "enabled": true,
+    "min_intensity": "3"
+  }
 }
