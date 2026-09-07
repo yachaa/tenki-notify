@@ -1,0 +1,44 @@
+{
+  "_comment": "地点を増やすときは locations に { } を追加する。緯度経度と気象庁コードは `python3 tenki_line.py geocode 地名` で調べられる。",
+  "locations": [
+    {
+      "name": "名古屋市",
+      "latitude": 35.1815,
+      "longitude": 136.9066,
+      "jma_office": "230000",
+      "jma_city": "2310000",
+      "wbgt_point": "51106",
+      "morning_summary": true,
+      "rain_alert": true,
+      "warning_alert": true
+    }
+  ],
+  "morning_summary": {
+    "hour_jst": 7
+  },
+  "rain_alert": {
+    "lookahead_minutes": 120,
+    "threshold_mm_per_15min": 0.2,
+    "threshold_mm_per_hour": 0.3,
+    "quiet_hours_jst": [
+      22,
+      6
+    ]
+  },
+  "warning_alert": {
+    "_min_level": "advisory=注意報も通知 / warning=警報以上のみ / emergency=特別警報のみ",
+    "min_level": "advisory"
+  },
+  "change_alert": {
+    "_comment": "予報が大きく変わったときに知らせる（気候の急変）",
+    "enabled": true,
+    "temp_diff": 3,
+    "pop_diff": 30,
+    "gust_ms": 15,
+    "quiet_hours_jst": [
+      23,
+      6
+    ]
+  },
+  "_locations_note": "実際の地点は GitHub Secrets の LOCATIONS に入れる（この配列と同じ形のJSON）。Secretsが設定されていればそちらが優先される。ここの値はSecrets未設定時のフォールバック。"
+}

@@ -1,0 +1,410 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#0b1220">
+<title>雨いつ降る？ — 天気・防災ダッシュボード</title>
+<style>
+:root{
+  --bg:#f4f6fa; --card:#ffffff; --ink:#101724; --muted:#5a6679; --line:#e2e7f0;
+  --accent:#2563eb; --rain:#3b82f6; --rain-soft:#bfdbfe;
+  --warn:#d97706; --alert:#dc2626; --emerg:#7c1d6f; --ok:#059669;
+  --shadow:0 1px 2px rgba(16,23,36,.06),0 8px 24px rgba(16,23,36,.06);
+  --radius:16px;
+}
+@media (prefers-color-scheme:dark){
+  :root:not([data-theme="light"]){
+    --bg:#0b1220; --card:#141c2b; --ink:#e8edf6; --muted:#93a0b5; --line:#243147;
+    --accent:#60a5fa; --rain:#60a5fa; --rain-soft:#1e3a5f;
+    --warn:#fbbf24; --alert:#f87171; --emerg:#e879f9; --ok:#34d399;
+    --shadow:0 1px 2px rgba(0,0,0,.4),0 8px 24px rgba(0,0,0,.35);
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#0b1220; --card:#141c2b; --ink:#e8edf6; --muted:#93a0b5; --line:#243147;
+  --accent:#60a5fa; --rain:#60a5fa; --rain-soft:#1e3a5f;
+  --warn:#fbbf24; --alert:#f87171; --emerg:#e879f9; --ok:#34d399;
+  --shadow:0 1px 2px rgba(0,0,0,.4),0 8px 24px rgba(0,0,0,.35);
+}
+*{box-sizing:border-box}
+body{
+  margin:0;background:var(--bg);color:var(--ink);
+  font-family:-apple-system,BlinkMacSystemFont,"Hiragino Sans","Noto Sans JP",system-ui,sans-serif;
+  line-height:1.6;-webkit-font-smoothing:antialiased;
+}
+.wrap{max-width:720px;margin:0 auto;padding:16px 16px 56px}
+header{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:14px}
+h1{font-size:17px;margin:0;letter-spacing:.01em;flex:1 1 auto}
+select,button{
+  font:inherit;font-size:14px;color:var(--ink);background:var(--card);
+  border:1px solid var(--line);border-radius:10px;padding:7px 10px;cursor:pointer;
+}
+select:focus-visible,button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);
+      box-shadow:var(--shadow);padding:18px;margin-bottom:14px}
+.hero{text-align:center;padding:26px 18px}
+.hero .icon{font-size:56px;line-height:1;margin-bottom:4px}
+.hero .desc{font-size:15px;color:var(--muted)}
+.hero .temp{font-size:44px;font-weight:650;letter-spacing:-.02em;margin:6px 0 2px}
+.hero .range{font-size:14px;color:var(--muted)}
+.verdict{margin-top:16px;padding:14px 16px;border-radius:12px;font-size:17px;font-weight:600}
+.verdict.rain{background:var(--rain-soft);color:var(--ink)}
+.verdict.dry{background:transparent;border:1px dashed var(--line);color:var(--muted);font-weight:500}
+.verdict small{display:block;font-size:13px;font-weight:400;color:var(--muted);margin-top:4px}
+h2{font-size:13px;font-weight:650;letter-spacing:.06em;color:var(--muted);
+   text-transform:uppercase;margin:0 0 12px}
+/* 降水タイムライン */
+.tl{position:relative}
+.bars{display:flex;align-items:flex-end;gap:2px;height:96px;
+      border-bottom:1px solid var(--line);padding-bottom:1px}
+.bar{flex:1 1 0;min-width:0;background:var(--rain);border-radius:3px 3px 0 0;
+     min-height:2px;opacity:.9;transition:height .2s}
+.bar.dry{background:var(--line);opacity:.7}
+.bar.now{outline:2px solid var(--accent);outline-offset:1px}
+.ticks{display:flex;justify-content:space-between;font-size:11px;
+       color:var(--muted);margin-top:6px;font-variant-numeric:tabular-nums}
+.legend{font-size:12px;color:var(--muted);margin-top:10px}
+/* 時系列 */
+.hours{display:flex;gap:4px;overflow-x:auto;padding-bottom:6px;scrollbar-width:thin}
+.hours::-webkit-scrollbar{height:6px}
+.hours::-webkit-scrollbar-thumb{background:var(--line);border-radius:3px}
+.hr{flex:0 0 60px;text-align:center;padding:10px 4px;border-radius:10px}
+.hr.wet{background:var(--rain-soft)}
+.hr .t{font-size:12px;color:var(--muted);font-variant-numeric:tabular-nums}
+.hr .i{font-size:20px;line-height:1.4}
+.hr .g{font-size:14px;font-weight:600;font-variant-numeric:tabular-nums}
+.hr .p{font-size:11px;color:var(--rain);font-variant-numeric:tabular-nums;min-height:16px}
+/* 警報 */
+.alerts .row{display:flex;gap:10px;align-items:flex-start;padding:9px 0;
+             border-top:1px solid var(--line)}
+.alerts .row:first-of-type{border-top:0}
+.badge{flex:0 0 auto;font-size:11px;font-weight:700;padding:3px 8px;border-radius:999px;
+       border:1px solid currentColor;white-space:nowrap;margin-top:2px}
+.b-emerg{color:var(--emerg)} .b-alert{color:var(--alert)} .b-warn{color:var(--warn)}
+.headline{font-size:14px;color:var(--muted);margin-top:12px;padding-top:12px;
+          border-top:1px solid var(--line)}
+.none{color:var(--ok);font-weight:600}
+.days{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.day{border:1px solid var(--line);border-radius:12px;padding:12px;text-align:center}
+.day .n{font-size:12px;color:var(--muted)}
+.day .i{font-size:30px;line-height:1.3}
+.day .g{font-size:14px;font-variant-numeric:tabular-nums}
+.day .p{font-size:12px;color:var(--rain);font-variant-numeric:tabular-nums}
+footer{font-size:12px;color:var(--muted);text-align:center;line-height:1.8}
+footer a{color:var(--accent)}
+.err{color:var(--alert);font-size:14px}
+.skel{color:var(--muted);font-size:14px;text-align:center;padding:8px}
+@media (max-width:400px){.hero .temp{font-size:38px}.wrap{padding:12px 12px 48px}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>☔️ 雨いつ降る？</h1>
+    <select id="loc" aria-label="地点を選ぶ"></select>
+    <button id="reload" title="最新の予報を取り直す">更新</button>
+  </header>
+
+  <div class="card hero" id="hero"><div class="skel">読み込み中…</div></div>
+
+  <div class="card alerts" id="alerts" hidden></div>
+
+  <div class="card tl">
+    <h2>これから12時間の雨（15分ごと）</h2>
+    <div class="bars" id="bars"></div>
+    <div class="ticks" id="ticks"></div>
+    <div class="legend" id="legend"></div>
+  </div>
+
+  <div class="card">
+    <h2>24時間の予報</h2>
+    <div class="hours" id="hours"></div>
+  </div>
+
+  <div class="card">
+    <h2>今日・明日</h2>
+    <div class="days" id="days"></div>
+  </div>
+
+  <footer>
+    予報: <a href="https://open-meteo.com/" target="_blank" rel="noopener">Open-Meteo</a>（日本では気象庁MSM/GSMを使用）<br>
+    警報・注意報: <a href="https://www.jma.go.jp/bosai/" target="_blank" rel="noopener">気象庁 防災情報</a><br>
+    <span id="stamp"></span>
+  </footer>
+</div>
+
+<script>
+/* ===== 地点設定 =====
+   既定は名古屋市。自宅の座標をこのファイルに書くとGitHub Pagesで公開したときに
+   誰でも見えてしまうので、URLのパラメータで渡せるようにしてある。
+
+     dashboard.html?name=自宅&lat=35.1815&lon=136.9066&office=230000&city=2310000
+
+   このURLをスマホでブックマーク（またはホーム画面に追加）すれば、
+   リポジトリを公開したままでも自宅の座標は自分のブックマークの中だけに留まる。
+   一度開くとブラウザに保存され、次からはパラメータなしでも同じ地点で開く。 */
+const DEFAULT_LOCATIONS = [
+  { name:"名古屋市", lat:35.1815, lon:136.9066, office:"230000", city:"2310000" },
+];
+
+function locationsFromUrl(){
+  const q = new URLSearchParams(location.search);
+  const lat = parseFloat(q.get("lat")), lon = parseFloat(q.get("lon"));
+  if(!isFinite(lat) || !isFinite(lon)) return null;
+  return [{ name: q.get("name") || "指定地点", lat, lon,
+            office: q.get("office") || "230000", city: q.get("city") || "2310000" }];
+}
+
+function loadLocations(){
+  const fromUrl = locationsFromUrl();
+  if(fromUrl){
+    try{ localStorage.setItem("tenki.locations", JSON.stringify(fromUrl)); }catch(e){}
+    return fromUrl;
+  }
+  try{
+    const saved = localStorage.getItem("tenki.locations");
+    if(saved){
+      const v = JSON.parse(saved);
+      if(Array.isArray(v) && v.length) return v;
+    }
+  }catch(e){}
+  return DEFAULT_LOCATIONS;
+}
+
+const LOCATIONS = loadLocations();
+
+/* ===== 定数 ===== */
+const WMO = {
+  0:["快晴","☀️"],1:["晴れ","🌤"],2:["晴れ時々くもり","⛅️"],3:["くもり","☁️"],
+  45:["霧","🌫"],48:["霧（着氷）","🌫"],
+  51:["弱い霧雨","🌦"],53:["霧雨","🌦"],55:["強い霧雨","🌧"],
+  56:["着氷性の霧雨","🌧"],57:["強い着氷性の霧雨","🌧"],
+  61:["弱い雨","🌦"],63:["雨","🌧"],65:["強い雨","🌧"],
+  66:["着氷性の雨","🌧"],67:["強い着氷性の雨","🌧"],
+  71:["弱い雪","🌨"],73:["雪","🌨"],75:["大雪","❄️"],77:["霧雪","🌨"],
+  80:["にわか雨","🌦"],81:["強いにわか雨","🌧"],82:["激しいにわか雨","⛈"],
+  85:["にわか雪","🌨"],86:["強いにわか雪","❄️"],
+  95:["雷雨","⛈"],96:["雷雨（ひょう）","⛈"],99:["激しい雷雨（ひょう）","⛈"],
+};
+const WARN_NAMES = {
+  "02":"暴風雪警報","03":"大雨警報","04":"洪水警報","05":"暴風警報","06":"大雪警報",
+  "07":"波浪警報","08":"高潮警報","10":"大雨注意報","12":"大雪注意報","13":"風雪注意報",
+  "14":"雷注意報","15":"強風注意報","16":"波浪注意報","17":"融雪注意報","18":"洪水注意報",
+  "19":"高潮注意報","20":"濃霧注意報","21":"乾燥注意報","22":"なだれ注意報","23":"低温注意報",
+  "24":"霜注意報","25":"着氷注意報","26":"着雪注意報","27":"その他の注意報",
+  "32":"暴風雪特別警報","33":"大雨特別警報","35":"暴風特別警報","36":"大雪特別警報",
+  "37":"波浪特別警報","38":"高潮特別警報",
+};
+const EMERG = new Set(["32","33","35","36","37","38"]);
+const WARNS = new Set(["02","03","04","05","06","07","08"]);
+const WD = ["日","月","火","水","木","金","土"];
+const TH15 = 0.2;   // mm/15分。これ以上を「雨」とみなす
+const TH60 = 0.3;   // mm/時
+
+const wmo = c => WMO[c] || ["—","•"];
+const $ = id => document.getElementById(id);
+/* Open-Meteo は timezone=Asia/Tokyo 指定で "YYYY-MM-DDTHH:mm"（JST）を返す。
+   ブラウザのTZに関わらずJSTとして扱うため、明示的に +09:00 を付けてパースする。 */
+const jst = s => new Date(s + ":00+09:00");
+const nowJst = () => new Date();
+const hhmm = d => new Intl.DateTimeFormat("ja-JP",{hour:"2-digit",minute:"2-digit",
+                    hour12:false,timeZone:"Asia/Tokyo"}).format(d);
+const strength = mmh => mmh>=30?"激しい雨":mmh>=10?"強い雨":mmh>=3?"やや強い雨":"弱い雨";
+
+/* ===== 取得 ===== */
+async function getForecast(l){
+  const p = new URLSearchParams({
+    latitude:l.lat, longitude:l.lon, timezone:"Asia/Tokyo",
+    minutely_15:"precipitation", forecast_minutely_15:48,
+    hourly:"precipitation,precipitation_probability,temperature_2m,weather_code",
+    forecast_hours:24,
+    daily:"weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max",
+    forecast_days:2, current:"temperature_2m,weather_code,precipitation",
+  });
+  const r = await fetch("https://api.open-meteo.com/v1/forecast?"+p);
+  if(!r.ok) throw new Error("天気の取得に失敗しました (HTTP "+r.status+")");
+  return r.json();
+}
+async function getWarnings(l){
+  const r = await fetch("https://www.jma.go.jp/bosai/warning/data/warning/"+l.office+".json");
+  if(!r.ok) throw new Error("警報の取得に失敗しました (HTTP "+r.status+")");
+  const d = await r.json();
+  let codes = null;
+  for(const g of d.areaTypes||[]) for(const a of g.areas||[]){
+    if(a.code !== l.city) continue;
+    codes = (a.warnings||[]).filter(w => w.code && w.status!=="解除"
+             && w.status!=="発表警報・注意報はなし").map(w => w.code);
+  }
+  return { codes, headline:(d.headlineText||"").trim(), office:d.publishingOffice||"気象庁",
+           reported:d.reportDatetime||"" };
+}
+
+/* ===== 描画 ===== */
+function renderHero(fc){
+  const now = nowJst();
+  const m = fc.minutely_15;
+  const times = m.time.map(jst), pr = m.precipitation;
+
+  // 「今」のスロット
+  let iNow = 0;
+  for(let i=0;i<times.length;i++){ if(times[i] <= now) iNow = i; else break; }
+  const rainingNow = pr[iNow] != null && pr[iNow] >= TH15;
+
+  let v;
+  if(rainingNow){
+    let stop=null, dry=0;
+    for(let i=iNow;i<times.length;i++){
+      if(pr[i]==null||pr[i]<TH15){ if(++dry>=3){ stop=new Date(times[i]-30*60000); break; } }
+      else dry=0;
+    }
+    v = `<div class="verdict rain">🌧 いま雨が降っています（${strength(pr[iNow]*4)}）
+         <small>${stop?`${hhmm(stop)}頃にやむ見込み`:"12時間先まで降り続く見込み"}</small></div>`;
+  } else {
+    let start=null;
+    for(let i=iNow+1;i<times.length;i++) if(pr[i]!=null&&pr[i]>=TH15){ start=i; break; }
+    if(start!=null){
+      const mins = Math.max(0, Math.round((times[start]-now)/60000));
+      let peak = 0;
+      for(let i=start;i<times.length && times[i]-times[start] <= 3*3600e3;i++)
+        peak = Math.max(peak, pr[i]||0);
+      v = `<div class="verdict rain">🌂 あと約${mins}分（${hhmm(times[start])}頃）から雨
+           <small>${strength(peak*4)}・最大 ${(peak*4).toFixed(1)}mm/h の見込み</small></div>`;
+    } else {
+      v = `<div class="verdict dry">☀️ 今後12時間、雨の予報はありません</div>`;
+    }
+  }
+
+  const cur = fc.current, d = fc.daily;
+  const [desc,icon] = wmo(cur.weather_code);
+  $("hero").innerHTML =
+    `<div class="icon">${icon}</div><div class="desc">${desc}</div>
+     <div class="temp">${Math.round(cur.temperature_2m)}℃</div>
+     <div class="range">最高 ${Math.round(d.temperature_2m_max[0])}℃ ／ 最低 ${Math.round(d.temperature_2m_min[0])}℃</div>
+     ${v}`;
+}
+
+function renderBars(fc){
+  const now = nowJst(), m = fc.minutely_15;
+  const times = m.time.map(jst), pr = m.precipitation;
+  const idx = times.map((t,i)=>i).filter(i => times[i] >= new Date(now-15*60000));
+  const use = idx.slice(0,48);
+  const max = Math.max(1.0, ...use.map(i => pr[i]||0));
+
+  $("bars").innerHTML = use.map((i,k)=>{
+    const mm = pr[i]||0, wet = mm >= TH15;
+    const h = wet ? Math.max(6, Math.round(mm/max*94)) : 2;
+    return `<div class="bar${wet?"":" dry"}${k===0?" now":""}" style="height:${h}px"
+            title="${hhmm(times[i])}  ${mm.toFixed(1)}mm/15分（${(mm*4).toFixed(1)}mm/h）"></div>`;
+  }).join("");
+
+  const marks = [0,12,24,36,47].filter(k=>k<use.length);
+  $("ticks").innerHTML = marks.map(k=>`<span>${hhmm(times[use[k]])}</span>`).join("");
+  const total = use.reduce((s,i)=>s+(pr[i]||0),0);
+  $("legend").textContent = total>0
+    ? `12時間の合計降水量 約 ${total.toFixed(1)}mm（最大 ${(max*4).toFixed(1)}mm/h）`
+    : "12時間の降水予測はありません";
+}
+
+function renderHours(fc){
+  const now = nowJst(), h = fc.hourly, out=[];
+  for(let i=0;i<h.time.length;i++){
+    const t = jst(h.time[i]);
+    if(t < new Date(now-3600e3)) continue;
+    const p = h.precipitation_probability[i], mm = h.precipitation[i]||0;
+    const [,icon] = wmo(h.weather_code[i]);
+    out.push(`<div class="hr${mm>=TH60?" wet":""}">
+      <div class="t">${hhmm(t)}</div><div class="i">${icon}</div>
+      <div class="g">${Math.round(h.temperature_2m[i])}°</div>
+      <div class="p">${p!=null?p+"%":""}</div></div>`);
+    if(out.length>=24) break;
+  }
+  $("hours").innerHTML = out.join("");
+}
+
+function renderDays(fc){
+  const d = fc.daily;
+  $("days").innerHTML = d.time.map((s,i)=>{
+    const dt = jst(s+"T00:00"), [desc,icon] = wmo(d.weather_code[i]);
+    const p = d.precipitation_probability_max[i];
+    return `<div class="day">
+      <div class="n">${i===0?"今日":"明日"}（${WD[dt.getDay()]}）</div>
+      <div class="i">${icon}</div><div class="n">${desc}</div>
+      <div class="g">${Math.round(d.temperature_2m_max[i])}° / ${Math.round(d.temperature_2m_min[i])}°</div>
+      <div class="p">${p!=null?"☔️ "+p+"%":""}</div></div>`;
+  }).join("");
+}
+
+function renderAlerts(w){
+  const box = $("alerts");
+  box.hidden = false;
+  if(w.codes === null){
+    box.innerHTML = `<h2>気象警報・注意報</h2>
+      <div class="err">市区町村コード（${"city"}）が見つかりません。LOCATIONS の city を確認してください。</div>`;
+    return;
+  }
+  const rank = c => EMERG.has(c)?0:WARNS.has(c)?1:2;
+  const sorted = [...w.codes].sort((a,b)=>rank(a)-rank(b)||a.localeCompare(b));
+  let body;
+  if(!sorted.length){
+    body = `<div class="row"><span class="none">✅ 発表中の警報・注意報はありません</span></div>`;
+  } else {
+    body = sorted.map(c=>{
+      const r = rank(c);
+      const [cls,lab] = r===0?["b-emerg","特別警報"]:r===1?["b-alert","警報"]:["b-warn","注意報"];
+      return `<div class="row"><span class="badge ${cls}">${lab}</span>
+              <span>${WARN_NAMES[c]||("コード "+c)}</span></div>`;
+    }).join("");
+  }
+  const rep = w.reported ? new Date(w.reported) : null;
+  // 気象庁は警報が出ていない期間、古い発表内容をそのまま返し続けることがある。
+  // 1日以上前の発表なら、現況と無関係な見出し文は出さず、鮮度だけ明示する。
+  let stale = "", showHeadline = !!w.headline;
+  if(rep){
+    const days = Math.floor((Date.now()-rep)/86400000);
+    if(days >= 1){
+      showHeadline = false;
+      stale = `<br><span style="color:var(--warn)">⚠️ この情報は${days}日前の発表です。
+        最新は<a href="https://www.jma.go.jp/bosai/warning/" target="_blank" rel="noopener">気象庁サイト</a>で確認してください</span>`;
+    }
+  }
+  box.innerHTML = `<h2>気象警報・注意報</h2>${body}` +
+    (showHeadline?`<div class="headline">${w.headline}</div>`:"") +
+    (rep?`<div class="headline">発表: ${new Intl.DateTimeFormat("ja-JP",
+        {month:"2-digit",day:"2-digit",hour:"2-digit",minute:"2-digit",hour12:false,
+         timeZone:"Asia/Tokyo"}).format(rep)}　${w.office}${stale}</div>`:"");
+}
+
+/* ===== 実行 ===== */
+let current = 0;
+async function load(){
+  const l = LOCATIONS[current];
+  $("hero").innerHTML = `<div class="skel">読み込み中…</div>`;
+  try{
+    const fc = await getForecast(l);
+    renderHero(fc); renderBars(fc); renderHours(fc); renderDays(fc);
+  }catch(e){
+    $("hero").innerHTML = `<div class="err">${e.message}</div>`;
+  }
+  try{
+    renderAlerts(await getWarnings(l));
+  }catch(e){
+    $("alerts").hidden = false;
+    $("alerts").innerHTML = `<h2>気象警報・注意報</h2><div class="err">${e.message}</div>`;
+  }
+  $("stamp").textContent = "最終更新 " + hhmm(nowJst());
+}
+
+LOCATIONS.forEach((l,i)=>{
+  const o = document.createElement("option");
+  o.value = i; o.textContent = l.name; $("loc").appendChild(o);
+});
+$("loc").hidden = LOCATIONS.length < 2;
+$("loc").addEventListener("change", e => { current = +e.target.value; load(); });
+$("reload").addEventListener("click", load);
+document.addEventListener("visibilitychange", () => { if(!document.hidden) load(); });
+setInterval(load, 10*60*1000);   // 10分ごとに自動更新
+load();
+</script>
+</body>
+</html>
