@@ -37,6 +37,7 @@ import os
 import smtplib
 import ssl
 import sys
+import time
 import urllib.request
 import urllib.parse
 import urllib.error
@@ -46,7 +47,11 @@ from email.message import EmailMessage
 JST = timezone(timedelta(hours=9), "JST")
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 CONFIG_PATH = os.path.join(BASE_DIR, "config.json")
-STATE_PATH = os.path.join(BASE_DIR, "state.json")
+def state_path():
+    """通知済みの記録の保存先。環境変数 STATE_FILE で切り替えられる。
+    天気用と防災用でファイルを分け、2つのワークフローが同じファイルを
+    書いてgitで衝突するのを防ぐ。"""
+    return os.path.join(BASE_DIR, os.environ.get("STATE_FILE", "state.json"))
 USER_AGENT = "tenki-line/1.0 (personal weather notifier)"
 
 # ----------------------------------------------------------------------------
@@ -329,17 +334,18 @@ def load_config():
 
 
 def load_state():
-    if not os.path.exists(STATE_PATH):
+    sp = state_path()
+    if not os.path.exists(sp):
         return {}
     try:
-        with open(STATE_PATH, encoding="utf-8") as f:
+        with open(sp, encoding="utf-8") as f:
             return json.load(f)
     except (ValueError, OSError):
         return {}
 
 
 def save_state(state):
-    with open(STATE_PATH, "w", encoding="utf-8") as f:
+    with open(state_path(), "w", encoding="utf-8") as f:
         json.dump(state, f, ensure_ascii=False, indent=2, sort_keys=True)
         f.write("\n")
 
@@ -1314,6 +1320,44 @@ def cmd_geocode(name):
         print("  市区町村名での一致なし。市区町村名（例: 名古屋市、豊田市）で再検索してください")
 
 
+def cmd_watch():
+    """1回の起動で一定時間だけ常駐し、一定間隔で警報チェックを繰り返す。
+
+    GitHub Actions の cron は指定どおりには起動しない（"*/5" と書いても
+    実測で2〜4時間に1回しか動かなかった）。そこで「起動回数」ではなく
+    「1回の起動の中でループする」ことで、実質的な監視間隔を確保する。
+
+      WATCH_MINUTES  : 何分間ループするか（既定 50）
+      WATCH_INTERVAL : 何秒ごとにチェックするか（既定 300 = 5分）
+    """
+    minutes = int(env("WATCH_MINUTES") or "50")
+    interval = int(env("WATCH_INTERVAL") or "300")
+
+    # 送信先が無いまま50分回しても意味がないので、先に確認して落とす
+    if not email_enabled() and not line_enabled():
+        die("送信先が設定されていません。\n"
+            "  メールを使う場合: SMTP_USER / SMTP_PASSWORD / MAIL_TO\n"
+            "  LINEを使う場合:  LINE_CHANNEL_ACCESS_TOKEN / LINE_USER_ID")
+
+    deadline = time.time() + minutes * 60
+    n = 0
+    print("watch開始: %d分間、%d秒ごとに警報をチェックします" % (minutes, interval), flush=True)
+    while True:
+        n += 1
+        print("--- %d回目 %s JST" % (n, now_jst().strftime("%H:%M:%S")), flush=True)
+        try:
+            run("warning")
+        except SystemExit:
+            raise
+        except Exception as e:
+            # 一時的な通信エラーでループ全体を止めない
+            sys.stderr.write("  チェック失敗(継続します): %s: %s\n" % (type(e).__name__, e))
+        if time.time() + interval >= deadline:
+            break
+        time.sleep(interval)
+    print("watch終了: %d回チェックしました" % n, flush=True)
+
+
 def run(mode, dry_run=False):
     cfg = load_config()
     state = load_state()
@@ -1422,6 +1466,8 @@ def main():
                % now_jst().strftime("%Y-%m-%d %H:%M"))
     elif mode == "preview":
         run("preview", dry_run=True)
+    elif mode == "watch":
+        cmd_watch()
     elif mode in ("morning", "rain", "warning", "auto"):
         run(mode)
     else:
