@@ -1,37 +1,43 @@
-name: 防災アラート（警報の高頻度監視）
+name: 防災アラート（警報の常時監視）
 
-# 気象警報・注意報だけを短い間隔で監視する。
-# 気象APIは叩かず気象庁の防災情報JSONだけを見るので、1回あたり数秒で終わる。
+# 気象警報・注意報を短い間隔で監視する。
 #
-# 【なぜ別ワークフローに分けたか】
-#   災害の通知は速いほどよいが、天気・雨・急変まで毎回取りに行くと重い。
-#   警報だけなら軽いので、こちらを高頻度、通常の天気は tenki.yml で30分ごとにする。
+# 【なぜ「起動しっぱなし」方式なのか】
+#   GitHub Actions の cron は指定どおりには起動しない。
+#   実測(2026-09-07〜12)では "*/5"(5分ごと)と書いたのに、5日間で約35回＝
+#   2〜4時間に1回しか起動しなかった。本来なら1,440回。
+#   そこで「起動回数」に頼るのをやめ、1回の起動の中でループして
+#   5分ごとにチェックする方式にした(tenki_line.py の watch モード)。
 #
-# 【実行時間について】
-#   Publicリポジトリでは GitHub Actions の実行時間が無制限で無料。
-#   Privateのままだと無料枠は月2,000分で、課金はジョブ単位1分未満切り上げのため
-#   5分ごと(288回/日)では約8,755分/月となり大幅に超過する。
-#   Privateで運用する場合は、このワークフローを無効化するか cron を "*/30" にすること。
+#   cancel-in-progress: true にしてあるので、次の起動が来たら古い監視を
+#   打ち切って新しい監視が始まる。起動が重なっても問題ない。
+#
+# 【費用】
+#   Publicリポジトリなので GitHub Actions の実行時間は無制限で無料。
+#   Privateに戻す場合はこのワークフローを必ず無効化すること(無料枠を即使い切る)。
 
 on:
   schedule:
-    - cron: "*/5 * * * *"     # 5分ごと
+    # 起動されにくいので多めに仕掛けておく。実際に起動した1回が
+    # WATCH_MINUTES 分ぶん監視を担当する。
+    - cron: "*/15 * * * *"
   workflow_dispatch:
 
 concurrency:
-  group: tenki-line          # tenki.yml と同じグループにして state.json の衝突を防ぐ
-  cancel-in-progress: false
+  group: bousai-watch
+  cancel-in-progress: true    # 新しい監視が来たら古いものは打ち切る
 
 permissions:
   contents: write
 
 jobs:
-  warning:
+  watch:
     runs-on: ubuntu-latest
+    timeout-minutes: 180
     steps:
       - uses: actions/checkout@v4
 
-      - name: 警報・注意報をチェック
+      - name: 警報を監視し続ける
         env:
           LOCATIONS: ${{ secrets.LOCATIONS }}
           SMTP_USER: ${{ secrets.SMTP_USER }}
@@ -40,15 +46,18 @@ jobs:
           LINE_CHANNEL_ACCESS_TOKEN: ${{ secrets.LINE_CHANNEL_ACCESS_TOKEN }}
           LINE_USER_ID: ${{ secrets.LINE_USER_ID }}
           TZ: Asia/Tokyo
-        run: python3 tenki_line.py warning
+          STATE_FILE: state_bousai.json   # 天気側と分けてgitの衝突を防ぐ
+          WATCH_MINUTES: "170"            # 約2.8時間ぶん監視する
+          WATCH_INTERVAL: "300"           # 5分ごと
+        run: python3 tenki_line.py watch
 
       - name: 通知済みの記録を保存
-        if: always()
+        if: always()                      # 打ち切られた時も必ず保存する
         run: |
-          if [ -n "$(git status --porcelain state.json)" ]; then
+          if [ -n "$(git status --porcelain state_bousai.json)" ]; then
             git config user.name  "github-actions[bot]"
             git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-            git add state.json
+            git add state_bousai.json
             git commit -m "chore: 警報の状態を更新 [skip ci]"
             git pull --rebase --autostash
             git push

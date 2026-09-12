@@ -26,7 +26,7 @@ on:
         options: [test, morning, rain, warning, auto]
 
 concurrency:
-  group: tenki-line
+  group: tenki-weather
   cancel-in-progress: false
 
 permissions:
@@ -50,6 +50,7 @@ jobs:
           LINE_CHANNEL_ACCESS_TOKEN: ${{ secrets.LINE_CHANNEL_ACCESS_TOKEN }}
           LINE_USER_ID: ${{ secrets.LINE_USER_ID }}
           TZ: Asia/Tokyo
+          STATE_FILE: state.json
         run: python3 tenki_line.py "${{ inputs.mode || 'auto' }}"
 
       - name: 通知済みの記録を保存
