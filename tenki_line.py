@@ -1333,11 +1333,14 @@ def cmd_watch():
     minutes = int(env("WATCH_MINUTES") or "50")
     interval = int(env("WATCH_INTERVAL") or "300")
 
-    # 送信先が無いまま50分回しても意味がないので、先に確認して落とす
+    # 送信先が未設定でも監視自体は続ける。ここで落とすと、設定が終わるまで
+    # 防災監視が丸ごと止まってしまう(2026-09-13にその退行を起こした)。
+    # 実際に通知すべき事象が起きた時点で notify() が落とすので、検知は止めない。
     if not email_enabled() and not line_enabled():
-        die("送信先が設定されていません。\n"
-            "  メールを使う場合: SMTP_USER / SMTP_PASSWORD / MAIL_TO\n"
-            "  LINEを使う場合:  LINE_CHANNEL_ACCESS_TOKEN / LINE_USER_ID")
+        sys.stderr.write(
+            "警告: 送信先が未設定です。監視は続けますが、通知が必要になった時点で失敗します。\n"
+            "  メール: SMTP_USER / SMTP_PASSWORD / MAIL_TO\n"
+            "  LINE  : LINE_CHANNEL_ACCESS_TOKEN / LINE_USER_ID\n")
 
     deadline = time.time() + minutes * 60
     n = 0
