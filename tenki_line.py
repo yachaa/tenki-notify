@@ -423,7 +423,10 @@ def email_push(text):
     msg = EmailMessage()
     msg["Subject"] = subject
     msg["From"] = env("SMTP_USER")
-    msg["To"] = env("MAIL_TO")
+    # MAIL_TO はカンマ(またはセミコロン)区切りで複数書ける。
+    # 例: "xxx@gmail.com, yyy@icloud.com" → 両方に届く
+    to_list = [a.strip() for a in env("MAIL_TO").replace(";", ",").split(",") if a.strip()]
+    msg["To"] = ", ".join(to_list)
     msg.set_content(text)
 
     host = env("SMTP_HOST") or "smtp.gmail.com"
@@ -628,6 +631,15 @@ def today_index(daily, now):
     return 1 if len(daily["time"]) > 1 else 0
 
 
+def pop_bar(pop):
+    """降水確率を10段階のバーにする。数字だけだと「94%」が何の確率か
+    ひと目で分からないので、雨の降りやすさを視覚的に示す。"""
+    if pop is None:
+        return "──────────"
+    n = max(0, min(10, int(round(pop / 10.0))))
+    return "■" * n + "□" * (10 - n)
+
+
 def hourly_table(hourly, now, from_hour=6):
     """今日の時間ごとの天気。朝の通知なので from_hour 以降〜23時までを返す。
     すでに過ぎた時刻も含めて1日の流れが見えるようにする。"""
@@ -699,12 +711,14 @@ def build_morning(loc, fc, cfg, aq=None, wbgt=None, overview=None):
     rows = hourly_table(hourly, now)
     if rows:
         L.append("")
-        L.append("━━ 時間ごとの天気 ━━")
+        L.append("━━ 時間ごと ━━")
+        L.append("（■の数 = 雨の降りやすさ）")
         for t, icon, temp, pop, mm, past in rows:
             mark = "･" if past else " "
-            pop_s = "%3d%%" % pop if pop is not None else "  --"
-            mm_s = " %.1fmm" % mm if mm and mm >= 0.1 else ""
-            L.append("%s%02d時 %s %2.0f℃ %s%s" % (mark, t.hour, icon, temp, pop_s, mm_s))
+            pop_s = "%3d%%" % pop if pop is not None else " --%"
+            mm_s = " 雨%.1fmm" % mm if mm and mm >= 0.1 else ""
+            L.append("%s%02d時 %s %2.0f℃ %s %s%s"
+                     % (mark, t.hour, icon, temp, pop_bar(pop), pop_s, mm_s))
 
     # ── 雨の時間帯 ────────────────────────────
     end_of_day = now.replace(hour=23, minute=59, second=0, microsecond=0)
