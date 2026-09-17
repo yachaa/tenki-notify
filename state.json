@@ -3,10 +3,10 @@
     "code": 55,
     "date": "2026-09-17",
     "gust": 27.4,
-    "pop": 67,
+    "pop": 98,
     "psum": 1.0,
-    "tmax": 30.4,
-    "tmin": 21.1
+    "tmax": 30.1,
+    "tmin": 21.2
   },
   "jmainfo:0": [],
   "morning_sent:0": "2026-09-17",
