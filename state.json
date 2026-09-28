@@ -2,11 +2,11 @@
   "forecast:0": {
     "code": 63,
     "date": "2026-09-28",
-    "gust": 29.5,
+    "gust": 29.2,
     "pop": 100,
-    "psum": 29.7,
-    "tmax": 25.3,
-    "tmin": 22.1
+    "psum": 39.4,
+    "tmax": 24.8,
+    "tmin": 22.4
   },
   "jmainfo:0": [],
   "morning_sent:0": "2026-09-28",
