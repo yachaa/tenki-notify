@@ -2,10 +2,10 @@
   "forecast:0": {
     "code": 1,
     "date": "2026-10-18",
-    "gust": 44.6,
+    "gust": 43.6,
     "pop": 0,
     "psum": 0.0,
-    "tmax": 24.7,
+    "tmax": 24.6,
     "tmin": 15.3
   },
   "jmainfo:0": [],
