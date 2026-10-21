@@ -1,12 +1,12 @@
 {
   "forecast:0": {
-    "code": 51,
+    "code": 53,
     "date": "2026-10-21",
-    "gust": 34.2,
+    "gust": 36.4,
     "pop": 100,
-    "psum": 0.9,
-    "tmax": 28.8,
-    "tmin": 19.4
+    "psum": 1.7,
+    "tmax": 28.6,
+    "tmin": 19.0
   },
   "jmainfo:0": [],
   "morning_sent:0": "2026-10-12",
